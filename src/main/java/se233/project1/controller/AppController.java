@@ -4,7 +4,6 @@ import javafx.application.HostServices;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
-import javafx.concurrent.Task;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.image.Image;
@@ -12,8 +11,6 @@ import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import se233.project1.exception.PotraceNotFoundException;
 import se233.project1.model.ColorMode;
 import se233.project1.model.DetailLevel;
@@ -42,8 +39,6 @@ import java.util.function.Consumer;
  * Medium detail and Custom colors); otherwise they run on a single worker thread.
  */
 public class AppController {
-    private static final Logger logger = LogManager.getLogger(AppController.class);
-
     private final Stage stage;
     private final HostServices hostServices;
     private final MainView view;
@@ -56,6 +51,7 @@ public class AppController {
     private int currentIndex = -1;
     private boolean busy = false;
     private BatchTask currentBatch;
+    private Thread batchThread;
     private boolean previewRunning = false;
     private PrefetchTask prefetchTask;
     private ImageItem shownItem;
@@ -114,11 +110,7 @@ public class AppController {
         settingsPanel.getNextButton().setOnAction(e -> setCurrent(currentIndex + 1));
         settingsPanel.getExportAllButton().setOnAction(e -> exportAll());
         settingsPanel.getApplyToAllButton().setOnAction(e -> applyToAll());
-        statusBar.getCancelButton().setOnAction(e -> {
-            if (currentBatch != null) {
-                currentBatch.stopBatch();
-            }
-        });
+        statusBar.getCancelButton().setOnAction(e -> cancelBatch());
     }
 
     private void setBusy(boolean value) {
@@ -133,27 +125,21 @@ public class AppController {
     /** Validates dropped files (and extracts a ZIP) on a background thread, then starts preprocessing. */
     public void handleFiles(List<File> files) {
         if (busy) {
-            Dialogs.info(stage, "Please wait", "New files can be added once the current job has finished.");
+            Dialogs.info("Please wait", "New files can be added once the current job has finished.");
             return;
         }
-        Task<InputResolver.Resolution> resolveTask = new Task<InputResolver.Resolution>() {
-            @Override
-            protected InputResolver.Resolution call() throws Exception {
-                return InputResolver.resolve(files);
-            }
-        };
+        ResolveTask resolveTask = new ResolveTask(files);
         setBusy(true);
         statusBar.setIdle("Reading files...");
         resolveTask.setOnSucceeded(e -> {
             setBusy(false);
-            startPreprocessing(resolveTask.getValue());
-        });
-        resolveTask.setOnFailed(e -> {
-            setBusy(false);
-            statusBar.setIdle("Ready");
-            Throwable error = resolveTask.getException();
-            logger.warn("Rejected dropped files: {}", error.getMessage());
-            Dialogs.error(stage, "These files cannot be opened", error.getMessage());
+            InputResolver.Resolution resolution = resolveTask.getValue();
+            if (resolution == null) {
+                statusBar.setIdle("Ready");
+                Dialogs.error("These files cannot be opened", resolveTask.getErrorMessage());
+            } else {
+                startPreprocessing(resolution);
+            }
         });
         Thread thread = new Thread(resolveTask);
         thread.setDaemon(true);
@@ -166,12 +152,7 @@ public class AppController {
         for (File file : resolution.getImages()) {
             ImageItem item = new ImageItem(file);
             // refresh the editor when this image finishes loading or changes status
-            item.fxImageProperty().addListener((obs, oldImage, newImage) -> {
-                if (isCurrent(item)) {
-                    showCurrent();
-                }
-            });
-            item.statusProperty().addListener((obs, oldStatus, newStatus) -> {
+            item.addChangeListener(() -> {
                 if (isCurrent(item)) {
                     showCurrent();
                 }
@@ -201,7 +182,7 @@ public class AppController {
             }
             showCurrent();
             updateExportMode();
-            if (result == null) {
+            if (result.isCancelled()) {
                 statusBar.setIdle("Preprocessing cancelled");
                 return;
             }
@@ -211,17 +192,14 @@ public class AppController {
         });
 
         if (!resolution.getSkipped().isEmpty()) {
-            Dialogs.withDetails(stage, Alert.AlertType.INFORMATION, "Some files were skipped",
+            Dialogs.withDetails(Alert.AlertType.INFORMATION, "Some files were skipped",
                     "Only .jpg and .png images are supported. These files were ignored:", resolution.getSkipped());
         }
     }
 
     // ------------------------------------------------------------------ batches
 
-    /**
-     * Runs one job per image on a background thread with a progress bar.
-     * {@code onDone} receives the result, or null when the batch was cancelled or failed.
-     */
+    /** Runs one job per image on a background thread with a progress bar; {@code onDone} receives the result. */
     private void runBatch(String verb, List<ImageItem> batch, List<Callable<ImageItem>> jobs, boolean parallel,
                           Consumer<BatchResult> onDone) {
         stopPrefetch();
@@ -238,28 +216,23 @@ public class AppController {
         statusBar.setRunning(true);
 
         task.setOnSucceeded(e -> {
-            finishBatch();
+            currentBatch = null;
+            batchThread = null;
+            setBusy(false);
+            statusBar.setIdle("Ready");
             onDone.accept(task.getValue());
         });
-        task.setOnCancelled(e -> {
-            finishBatch();
-            onDone.accept(null);
-        });
-        task.setOnFailed(e -> {
-            finishBatch();
-            logger.error("{} failed", verb, task.getException());
-            Dialogs.error(stage, verb + " failed", String.valueOf(task.getException().getMessage()));
-            onDone.accept(null);
-        });
-        Thread thread = new Thread(task);
-        thread.setDaemon(true);
-        thread.start();
+        batchThread = new Thread(task);
+        batchThread.setDaemon(true);
+        batchThread.start();
     }
 
-    private void finishBatch() {
-        currentBatch = null;
-        setBusy(false);
-        statusBar.setIdle("Ready");
+    /** Cancel button: stop the worker threads and interrupt the thread that waits for their results. */
+    private void cancelBatch() {
+        if (currentBatch != null) {
+            currentBatch.stopBatch();
+            batchThread.interrupt();
+        }
     }
 
     private void reportFailures(BatchResult result, String header) {
@@ -270,7 +243,7 @@ public class AppController {
             showPotraceError();
             return;
         }
-        Dialogs.withDetails(stage, Alert.AlertType.ERROR, header,
+        Dialogs.withDetails(Alert.AlertType.ERROR, header,
                 result.getFailures().size() + " of " + result.getTotal() + " images failed:", result.getFailures());
     }
 
@@ -311,7 +284,7 @@ public class AppController {
         Image image = item.getFxImage();
         if (image != null) {
             if (item != shownItem || image != shownImage) {
-                originalPane.setContent(VectorNodeFactory.rasterNode(image, editor.getViewport()),
+                originalPane.setContent(VectorNodeFactory.rasterNode(image),
                         image.getWidth(), image.getHeight());
                 editor.getViewport().setContentSize(image.getWidth(), image.getHeight());
             }
@@ -392,17 +365,15 @@ public class AppController {
         PreviewTask task = new PreviewTask(item, settings, vectorizer);
         task.setOnSucceeded(e -> {
             previewRunning = false;
-            refreshResult(current());
-        });
-        task.setOnFailed(e -> {
-            previewRunning = false;
-            Throwable error = task.getException();
-            logger.error("Preview failed for {}", item.getDisplayName(), error);
-            if (error instanceof PotraceNotFoundException) {
+            if (task.getValue() != null) {
+                refreshResult(current());
+                return;
+            }
+            if (task.isPotraceMissing()) {
                 showPotraceError();
             }
             if (isCurrent(item) && settings.sameAs(item.getSettings())) {
-                resultPane.showError("Could not vectorize this image:\n" + error.getMessage());
+                resultPane.showError("Could not vectorize this image:\n" + task.getErrorMessage());
             } else {
                 refreshResult(current());
             }
@@ -438,7 +409,7 @@ public class AppController {
 
     private void stopPrefetch() {
         if (prefetchTask != null) {
-            prefetchTask.cancel();
+            prefetchTask.stopPrefetch();
             prefetchTask = null;
         }
     }
@@ -515,7 +486,7 @@ public class AppController {
             return;
         }
         if (loadedItems().isEmpty()) {
-            Dialogs.warning(stage, "Nothing to export", "None of the images could be loaded.");
+            Dialogs.warning("Nothing to export", "None of the images could be loaded.");
             return;
         }
         if (!PotraceRunner.isAvailable()) {
@@ -540,7 +511,7 @@ public class AppController {
     public void exportTo(File outDir) {
         List<ImageItem> exportable = loadedItems();
         if (!outDir.isDirectory() || !outDir.canWrite()) {
-            Dialogs.error(stage, "Cannot write to this folder", outDir + " is not writable. Please choose another folder.");
+            Dialogs.error("Cannot write to this folder", outDir + " is not writable. Please choose another folder.");
             return;
         }
         List<Callable<ImageItem>> jobs = new ArrayList<>();
@@ -558,7 +529,7 @@ public class AppController {
                     item.setStatus(ItemStatus.READY);
                 }
             }
-            if (result == null) {
+            if (result.isCancelled()) {
                 statusBar.setIdle("Export cancelled");
                 return;
             }
@@ -567,8 +538,9 @@ public class AppController {
             statusBar.setIdle(done + " to " + outDir);
             if (!result.getFailures().isEmpty()) {
                 reportFailures(result, "Some files could not be exported");
-            } else if (Dialogs.confirm(stage, "Export complete", done + "\nSaved to: " + outDir
-                    + "\n\nOpen the output folder?")) {
+            } else {
+                Dialogs.info("Export complete", done + "\nSaved to: " + outDir);
+                // open the output folder in the operating system's file browser
                 hostServices.showDocument(outDir.toURI().toString());
             }
         });
@@ -631,14 +603,12 @@ public class AppController {
             return;
         }
         potraceErrorShown = true;
-        Dialogs.error(stage, "Potrace is not installed", new PotraceNotFoundException().getMessage());
+        Dialogs.error("Potrace is not installed", new PotraceNotFoundException().getMessage());
     }
 
     /** Called when the window closes: stop all background work. */
     public void shutdown() {
         stopPrefetch();
-        if (currentBatch != null) {
-            currentBatch.stopBatch();
-        }
+        cancelBatch();
     }
 }

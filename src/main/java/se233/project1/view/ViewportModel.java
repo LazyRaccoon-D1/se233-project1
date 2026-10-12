@@ -1,9 +1,10 @@
 package se233.project1.view;
 
-import javafx.beans.property.DoubleProperty;
-import javafx.beans.property.SimpleDoubleProperty;
 import javafx.geometry.Bounds;
 import javafx.scene.Node;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Zoom and pan state shared by the original and the vectorized preview, so both always show the same
@@ -15,17 +16,28 @@ public class ViewportModel {
     public static final double ZOOM_STEP = 1.25;
     private static final double FIT_MARGIN = 0.94;
 
-    private final DoubleProperty zoom = new SimpleDoubleProperty(1);
-    private final DoubleProperty offsetX = new SimpleDoubleProperty(0);
-    private final DoubleProperty offsetY = new SimpleDoubleProperty(0);
+    private double zoom = 1;
+    private double offsetX = 0;
+    private double offsetY = 0;
+    private final List<Runnable> listeners = new ArrayList<>();
     private double contentWidth = 1, contentHeight = 1;
     private double viewWidth, viewHeight;
     private boolean fitMode = true;
 
-    public DoubleProperty zoomProperty() { return zoom; }
-    public DoubleProperty offsetXProperty() { return offsetX; }
-    public DoubleProperty offsetYProperty() { return offsetY; }
-    public double getZoom() { return zoom.get(); }
+    public double getZoom() { return zoom; }
+    public double getOffsetX() { return offsetX; }
+    public double getOffsetY() { return offsetY; }
+
+    /** Registers code to run whenever the zoom or the pan offset changes (both preview panes do this). */
+    public void addChangeListener(Runnable listener) {
+        listeners.add(listener);
+    }
+
+    private void notifyListeners() {
+        for (Runnable listener : listeners) {
+            listener.run();
+        }
+    }
 
     public void setContentSize(double width, double height) {
         contentWidth = Math.max(1, width);
@@ -46,10 +58,10 @@ public class ViewportModel {
         if (viewWidth <= 0 || viewHeight <= 0) {
             return;
         }
-        double z = clamp(Math.min(viewWidth / contentWidth, viewHeight / contentHeight) * FIT_MARGIN);
-        zoom.set(z);
-        offsetX.set((viewWidth - contentWidth * z) / 2);
-        offsetY.set((viewHeight - contentHeight * z) / 2);
+        zoom = clamp(Math.min(viewWidth / contentWidth, viewHeight / contentHeight) * FIT_MARGIN);
+        offsetX = (viewWidth - contentWidth * zoom) / 2;
+        offsetY = (viewHeight - contentHeight * zoom) / 2;
+        notifyListeners();
     }
 
     public void zoomIn() { zoomAt(ZOOM_STEP, viewWidth / 2, viewHeight / 2); }
@@ -58,22 +70,23 @@ public class ViewportModel {
 
     /** Zooms by {@code factor} keeping the point (pivotX, pivotY) of the view in place. */
     public void zoomAt(double factor, double pivotX, double pivotY) {
-        double old = zoom.get();
-        double z = clamp(old * factor);
-        if (z == old) {
+        double z = clamp(zoom * factor);
+        if (z == zoom) {
             return;
         }
         fitMode = false;
-        double ratio = z / old;
-        offsetX.set(pivotX - (pivotX - offsetX.get()) * ratio);
-        offsetY.set(pivotY - (pivotY - offsetY.get()) * ratio);
-        zoom.set(z);
+        double ratio = z / zoom;
+        offsetX = pivotX - (pivotX - offsetX) * ratio;
+        offsetY = pivotY - (pivotY - offsetY) * ratio;
+        zoom = z;
+        notifyListeners();
     }
 
     public void panBy(double dx, double dy) {
         fitMode = false;
-        offsetX.set(offsetX.get() + dx);
-        offsetY.set(offsetY.get() + dy);
+        offsetX = offsetX + dx;
+        offsetY = offsetY + dy;
+        notifyListeners();
     }
 
     private static double clamp(double z) {
@@ -82,7 +95,7 @@ public class ViewportModel {
 
     /**
      * Places a node so that its local point (x, y) appears at (offsetX + scaleX * x, offsetY + scaleY * y).
-     * setScaleX/Y scale a node around the centre of its bounds, so the translation compensates for that.
+     * setScaleX/Y scale a node around the centre of its bounds, so the layout position compensates for that.
      */
     public static void place(Node node, double scaleX, double scaleY, double offsetX, double offsetY) {
         Bounds bounds = node.getLayoutBounds();
@@ -90,7 +103,7 @@ public class ViewportModel {
         double centerY = bounds.getMinY() + bounds.getHeight() / 2;
         node.setScaleX(scaleX);
         node.setScaleY(scaleY);
-        node.setTranslateX(offsetX + centerX * (scaleX - 1));
-        node.setTranslateY(offsetY + centerY * (scaleY - 1));
+        node.setLayoutX(offsetX + centerX * (scaleX - 1));
+        node.setLayoutY(offsetY + centerY * (scaleY - 1));
     }
 }

@@ -15,29 +15,26 @@ colors itself and traces one stacked layer per color.
 3. Run it:
    - IntelliJ: run `se233.project1.Launcher`
    - Maven: `./mvnw clean javafx:run`
-   - Jar: `./mvnw clean package`, then `java -jar target/project1-1.0-SNAPSHOT.jar`
-4. Tests: `./mvnw test` runs 42 JUnit 5 tests. `VectorizerTest` needs Potrace installed. You can also run
-   `JUnitTestSuite` from IntelliJ.
 
-## Course concepts used (SE233 coursebook)
+## Course concepts used (SE233 coursebook, chapters 1-3)
+
+The project only uses techniques from the first half of the course.
 
 | Chapter | Concept | Where in the project |
 |---|---|---|
-| 1 Event-driven programming | JavaFX layouts and controls, event handlers, drag and drop (`setOnDragOver` / `setOnDragDropped`, `Dragboard`, `TransferMode`), mouse events | `view/*`; `AppController.wireDragAndDrop`; drag to pan and double-click to fit in `PreviewPane` |
-| 2 Exception handling | Custom checked exceptions extending `IOException` (like `EmptyFileException`), `throws`, try-catch-finally, try-with-resources, lambdas and streams, `Alert` dialogs | `exception/*`; `PotraceRunner.trace` (`finally` deletes temp files); `Dialogs`; `InputResolver` |
-| 3 Concurrency | `Task` with `updateProgress` / `updateMessage` bound to a `ProgressBar`; `Callable` job classes; `ExecutorService` (`newFixedThreadPool` / `newSingleThreadExecutor`); `ExecutorCompletionService` + `Future`; `synchronized`; `Platform.runLater`; daemon threads; `shutdownNow()` for cancelling | `BatchTask`, `PreprocessTask`, `ExportTask`, `PreviewTask`, `PrefetchTask`, `ImageItem` (synchronized), `AppController.runBatch` |
-| 4 Debugging and logging | Log4j 2 loggers and levels, `log4j2.properties` | `LogManager.getLogger` in the controllers |
-| 5 Unit testing | JUnit 5 assertions (`assertEquals`, `assertThrows`, `assertTrue`), `@BeforeEach`/`@BeforeAll`, `given/then` test names, test suite (`@Suite`, `@SelectClasses`), Mockito mocks and `verify`, reflection (`getDeclaredField`, `setAccessible`, `ReflectionHelper`) | `src/test/java/se233/project1/*` |
-| 6 Build management | Maven, the wrapper, `javafx-maven-plugin`, `maven-shade-plugin` for a runnable jar, `JarLauncher` | `pom.xml`, `JarLauncher` |
+| 1 Event-driven programming | JavaFX layouts and controls, event handlers (`setOnAction`, mouse events, `setOnCloseRequest`), drag and drop (`setOnDragOver` / `setOnDragDropped`, `Dragboard`, `TransferMode`), positioning with `setLayoutX` | `view/*`; `AppController.wireDragAndDrop`; drag to pan and double-click to fit in `PreviewPane` |
+| 2 Exception handling | Custom checked exceptions extending `IOException` (like `EmptyFileException`), `throws`, try-catch-finally, try-with-resources, `printStackTrace` / `System.err`, lambdas and streams, `Alert` dialogs | `exception/*`; `PotraceRunner.trace` (`finally` deletes temp files); `Dialogs`; `InputResolver` |
+| 3 Concurrency | `Task` with `updateProgress` / `updateMessage` bound to a `ProgressBar`, `setOnSucceeded`; `Callable` job classes; `ExecutorService` (`newFixedThreadPool` / `newSingleThreadExecutor`); `ExecutorCompletionService` + `Future`; `synchronized`; `Platform.runLater`; daemon threads; `shutdownNow()` and `interrupt()` for cancelling; `HostServices.showDocument` | `BatchTask`, `PreprocessTask`, `ExportTask`, `PreviewTask`, `PrefetchTask`, `ResolveTask`, `ImageItem` (synchronized), `AppController` |
 
 Some APIs are outside the coursebook but required by the project spec:
 
 | API | Required for |
 |---|---|
-| `ProcessBuilder` | Running the Potrace command-line tool, which the spec recommends |
+| `ProcessBuilder`, `System.getenv("PATH")` | Finding and running the Potrace command-line tool, which the spec recommends |
 | `ZipInputStream` | ZIP input |
 | `DirectoryChooser` | "The OS default file browser" for the output folder |
-| `SVGPath` | Drawing the vector result in the preview |
+| `PixelReader` | Reading pixels to detect the image's colors |
+| `SVGPath`, `setScaleX` | Drawing the vector result, and zooming the preview |
 | `ToggleButton` and `CheckBox` | The spec's selectors and checkbox |
 
 ## Rubric coverage (pair version)
@@ -65,13 +62,14 @@ All of these show a clear message instead of crashing:
 
 ```
 se233.project1
-├── Launcher / JarLauncher
+├── Launcher
 ├── model       DetailLevel, ColorMode, ItemStatus, VectorSettings, ColorAnalysis, VectorResult, ImageItem
 ├── controller  AppController   UI wiring, drop handling, preview, export
 │               BatchTask       Task: runs the Callables on a thread pool (parallel) or a single thread
 │               PreprocessTask  Callable: load → detect colors → Medium + 2 colors → preview
 │               ExportTask      Callable: trace at export resolution → write .svg
 │               PreviewTask / PrefetchTask   Task: previews for setting changes
+│               ResolveTask     Task: checks dropped files / extracts the ZIP
 │               Vectorizer      quantize → stack color layers → Potrace per layer
 │               ColorAnalyzer   color detection + k-means color reduction
 │               PotraceRunner   runs the potrace process (temp PBM file in, SVG file out)

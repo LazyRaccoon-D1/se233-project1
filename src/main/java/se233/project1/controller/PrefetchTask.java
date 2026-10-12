@@ -1,8 +1,6 @@
 package se233.project1.controller;
 
 import javafx.concurrent.Task;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import se233.project1.model.ImageItem;
 import se233.project1.model.VectorSettings;
 
@@ -13,10 +11,10 @@ import java.util.List;
  * so switching detail level, colors or background removal shows the result instantly.
  */
 public class PrefetchTask extends Task<Void> {
-    private static final Logger logger = LogManager.getLogger(PrefetchTask.class);
     private final ImageItem item;
     private final List<VectorSettings> variants;
     private final Vectorizer vectorizer;
+    private boolean stopped = false;
 
     public PrefetchTask(ImageItem item, List<VectorSettings> variants, Vectorizer vectorizer) {
         this.item = item;
@@ -24,10 +22,19 @@ public class PrefetchTask extends Task<Void> {
         this.vectorizer = vectorizer;
     }
 
+    /** Asks the task to stop before its next trace (called when the user does something else). */
+    public synchronized void stopPrefetch() {
+        stopped = true;
+    }
+
+    private synchronized boolean isStopped() {
+        return stopped;
+    }
+
     @Override
     protected Void call() {
         for (VectorSettings settings : variants) {
-            if (isCancelled()) {
+            if (isStopped()) {
                 return null;
             }
             if (item.getCachedPreview(settings) != null) {
@@ -36,10 +43,9 @@ public class PrefetchTask extends Task<Void> {
             try {
                 item.cachePreview(vectorizer.vectorize(item.getPixels(), item.getWidth(), item.getHeight(),
                         item.getAnalysis(), settings, Vectorizer.PREVIEW_MAX_SIDE));
-            } catch (InterruptedException e) {
-                return null; // cancelled
             } catch (Exception e) {
-                logger.debug("Prefetch failed: {}", e.getMessage());
+                // a failed prefetch is not a problem: the preview is traced again when it is needed
+                return null;
             }
         }
         return null;

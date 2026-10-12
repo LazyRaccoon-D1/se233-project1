@@ -1,7 +1,5 @@
 package se233.project1.controller;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import se233.project1.exception.InvalidInputException;
 
 import java.io.File;
@@ -18,8 +16,6 @@ import java.util.zip.ZipInputStream;
  * ZIP archive containing images (extracted to a temporary folder).
  */
 public class InputResolver {
-    private static final Logger logger = LogManager.getLogger(InputResolver.class);
-
     /** The images to process and the names of ignored files (to tell the user). */
     public static class Resolution {
         private final List<File> images;
@@ -119,7 +115,7 @@ public class InputResolver {
             throw new InvalidInputException("The ZIP archive \"" + zip.getName() + "\" does not contain any .jpg or .png images.");
         }
         images.sort((a, b) -> a.getPath().compareTo(b.getPath()));
-        logger.info("Extracted {} images from {} into {}", images.size(), zip.getName(), target);
+        System.out.println("Extracted " + images.size() + " images from " + zip.getName() + " into " + target);
         return new Resolution(images, skipped);
     }
 

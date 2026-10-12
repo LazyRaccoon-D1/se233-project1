@@ -1,6 +1,5 @@
 module se233.project1 {
     requires javafx.controls;
-    requires org.apache.logging.log4j;
 
     opens se233.project1 to javafx.graphics;
     exports se233.project1;

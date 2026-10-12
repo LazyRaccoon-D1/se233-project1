@@ -56,9 +56,7 @@ public class PreviewPane extends VBox {
         VBox.setVgrow(stack, Priority.ALWAYS);
         getChildren().addAll(title, stack, caption);
 
-        model.zoomProperty().addListener((obs, oldValue, newValue) -> updatePlacement());
-        model.offsetXProperty().addListener((obs, oldValue, newValue) -> updatePlacement());
-        model.offsetYProperty().addListener((obs, oldValue, newValue) -> updatePlacement());
+        model.addChangeListener(() -> updatePlacement());
         if (drivesViewSize) {
             viewport.widthProperty().addListener((obs, o, n) -> model.setViewSize(n.doubleValue(), viewport.getHeight()));
             viewport.heightProperty().addListener((obs, o, n) -> model.setViewSize(viewport.getWidth(), n.doubleValue()));
@@ -98,8 +96,7 @@ public class PreviewPane extends VBox {
     }
 
     private void updatePlacement() {
-        ViewportModel.place(holder, model.getZoom(), model.getZoom(), model.offsetXProperty().get(),
-                model.offsetYProperty().get());
+        ViewportModel.place(holder, model.getZoom(), model.getZoom(), model.getOffsetX(), model.getOffsetY());
     }
 
     public void setCaption(String text) {

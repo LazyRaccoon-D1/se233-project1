@@ -2,8 +2,6 @@ package se233.project1.controller;
 
 import javafx.application.Platform;
 import javafx.concurrent.Task;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import se233.project1.exception.PotraceNotFoundException;
 import se233.project1.model.ImageItem;
 import se233.project1.model.ItemStatus;
@@ -25,7 +23,6 @@ import java.util.concurrent.Future;
  * Results are collected with an ExecutorCompletionService in the order the jobs finish.
  */
 public class BatchTask extends Task<BatchResult> {
-    private static final Logger logger = LogManager.getLogger(BatchTask.class);
     public static final int THREADS = 4;
 
     private final String verb;
@@ -46,9 +43,9 @@ public class BatchTask extends Task<BatchResult> {
     public boolean isParallel() { return parallel; }
 
     @Override
-    protected BatchResult call() throws Exception {
+    protected BatchResult call() {
         int total = jobs.size();
-        logger.info("{} {} image(s) {}", verb, total, parallel ? "in parallel" : "sequentially");
+        System.out.println(verb + " " + total + " image(s) " + (parallel ? "in parallel" : "sequentially"));
         if (parallel) {
             executor = Executors.newFixedThreadPool(THREADS);
         } else {
@@ -58,6 +55,7 @@ public class BatchTask extends Task<BatchResult> {
         Map<Future<ImageItem>, ImageItem> owners = new HashMap<>();
         List<String> failures = new ArrayList<>();
         boolean potraceMissing = false;
+        boolean cancelled = false;
         int succeeded = 0;
         updateProgress(0, total);
         publish();
@@ -86,7 +84,7 @@ public class BatchTask extends Task<BatchResult> {
                         potraceMissing = true;
                     }
                     failures.add(item.getDisplayName() + ": " + cause.getMessage());
-                    logger.warn("{} failed for {}: {}", verb, item.getDisplayName(), cause.toString());
+                    System.err.println(verb + " failed for " + item.getDisplayName() + ": " + cause);
                     Platform.runLater(() -> {
                         item.setMessage(cause.getMessage());
                         item.setStatus(ItemStatus.FAILED);
@@ -95,18 +93,21 @@ public class BatchTask extends Task<BatchResult> {
                 updateProgress(i + 1, total);
                 publish();
             }
+        } catch (InterruptedException e) {
+            // the Cancel button interrupted this thread (see stopBatch)
+            System.out.println(verb + " cancelled");
+            cancelled = true;
         } finally {
             executor.shutdown();
         }
-        return new BatchResult(total, succeeded, failures, potraceMissing);
+        return new BatchResult(total, succeeded, failures, potraceMissing, cancelled);
     }
 
-    /** Cancel button: stop all worker threads (shutdownNow interrupts them) and cancel this Task. */
+    /** Cancel button: stop all worker threads. shutdownNow() interrupts them, which stops their Potrace processes. */
     public void stopBatch() {
         if (executor != null) {
             executor.shutdownNow();
         }
-        cancel();
     }
 
     private synchronized void jobStarted() {

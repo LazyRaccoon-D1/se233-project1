@@ -1,19 +1,18 @@
 package se233.project1.model;
 
-import javafx.beans.property.ObjectProperty;
-import javafx.beans.property.SimpleObjectProperty;
-import javafx.beans.property.SimpleStringProperty;
-import javafx.beans.property.StringProperty;
 import javafx.scene.image.Image;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * One image dropped into the application together with its settings and cached previews.
  * Worker threads and the JavaFX thread both use this object, so the shared data is accessed through
- * synchronized methods. The JavaFX properties are only changed on the JavaFX Application Thread.
+ * synchronized methods. The status, message and display image are only changed on the JavaFX
+ * Application Thread (through Platform.runLater); every change runs the registered listeners.
  */
 public class ImageItem {
     private final File source;
@@ -26,9 +25,10 @@ public class ImageItem {
     private VectorSettings settings;
     private final Map<String, VectorResult> previewCache = new HashMap<>();
 
-    private final ObjectProperty<Image> fxImage = new SimpleObjectProperty<>();
-    private final ObjectProperty<ItemStatus> status = new SimpleObjectProperty<>(ItemStatus.QUEUED);
-    private final StringProperty message = new SimpleStringProperty("");
+    private Image fxImage;
+    private ItemStatus status = ItemStatus.QUEUED;
+    private String message = "";
+    private final List<Runnable> listeners = new ArrayList<>();
 
     public ImageItem(File source) {
         this.source = source;
@@ -66,17 +66,36 @@ public class ImageItem {
         previewCache.put(result.getSettings().getKey(), result);
     }
 
-    public ObjectProperty<Image> fxImageProperty() { return fxImage; }
-    public Image getFxImage() { return fxImage.get(); }
-    public void setFxImage(Image image) { fxImage.set(image); }
+    /** Registers code to run whenever the status, message or display image changes. */
+    public void addChangeListener(Runnable listener) { listeners.add(listener); }
+    public void removeChangeListener(Runnable listener) { listeners.remove(listener); }
 
-    public ObjectProperty<ItemStatus> statusProperty() { return status; }
-    public ItemStatus getStatus() { return status.get(); }
-    public void setStatus(ItemStatus s) { status.set(s); }
+    private void notifyListeners() {
+        for (Runnable listener : new ArrayList<>(listeners)) {
+            listener.run();
+        }
+    }
 
-    public StringProperty messageProperty() { return message; }
-    public String getMessage() { return message.get(); }
-    public void setMessage(String m) { message.set(m); }
+    public Image getFxImage() { return fxImage; }
+
+    public void setFxImage(Image image) {
+        fxImage = image;
+        notifyListeners();
+    }
+
+    public ItemStatus getStatus() { return status; }
+
+    public void setStatus(ItemStatus s) {
+        status = s;
+        notifyListeners();
+    }
+
+    public String getMessage() { return message; }
+
+    public void setMessage(String m) {
+        message = m;
+        notifyListeners();
+    }
 
     public String getBaseName() {
         int dot = displayName.lastIndexOf('.');

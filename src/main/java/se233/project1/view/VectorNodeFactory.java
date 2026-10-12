@@ -32,10 +32,8 @@ public class VectorNodeFactory {
         return new Group(layers);
     }
 
-    /** The original image; pixels stay sharp when zoomed in so the difference to the vector is visible. */
-    public static Node rasterNode(Image image, ViewportModel model) {
-        ImageView view = new ImageView(image);
-        view.smoothProperty().bind(model.zoomProperty().lessThan(2));
-        return view;
+    /** The original image. */
+    public static Node rasterNode(Image image) {
+        return new ImageView(image);
     }
 }

@@ -1,8 +1,6 @@
 package se233.project1.controller;
 
 import javafx.application.Platform;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import se233.project1.model.ImageItem;
 import se233.project1.model.ItemStatus;
 import se233.project1.model.VectorResult;
@@ -15,7 +13,6 @@ import java.util.concurrent.Callable;
 
 /** Export of one image, run on a worker thread: trace at export resolution and save the SVG file. */
 public class ExportTask implements Callable<ImageItem> {
-    private static final Logger logger = LogManager.getLogger(ExportTask.class);
     private final ImageItem item;
     private final VectorSettings settings;
     private final File target;
@@ -46,7 +43,7 @@ public class ExportTask implements Callable<ImageItem> {
             temp.delete();
             throw new IOException("Could not save " + target.getName());
         }
-        logger.info("Exported {} ({})", target, settings.describe());
+        System.out.println("Exported " + target + " (" + settings.describe() + ")");
         Platform.runLater(() -> {
             item.setMessage("Saved as " + target.getName());
             item.setStatus(ItemStatus.EXPORTED);

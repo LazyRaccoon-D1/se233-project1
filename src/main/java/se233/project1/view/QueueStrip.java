@@ -14,7 +14,9 @@ import se233.project1.model.ImageItem;
 import se233.project1.model.ItemStatus;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 /**
@@ -29,6 +31,7 @@ public class QueueStrip extends HBox {
     private final Button clearButton = new Button("Clear all");
     private final Label summary = new Label();
     private final List<VBox> tileNodes = new ArrayList<>();
+    private final Map<ImageItem, Runnable> tileUpdaters = new HashMap<>();
     private Consumer<Integer> onSelect = i -> {
     };
     private Consumer<ImageItem> onRemove = i -> {
@@ -64,6 +67,11 @@ public class QueueStrip extends HBox {
 
     /** Rebuilds the thumbnails for the current list of images. */
     public void refresh(List<ImageItem> items, int currentIndex) {
+        // stop updating the old thumbnails before building new ones
+        for (ImageItem item : tileUpdaters.keySet()) {
+            item.removeChangeListener(tileUpdaters.get(item));
+        }
+        tileUpdaters.clear();
         tiles.getChildren().clear();
         tileNodes.clear();
         for (int i = 0; i < items.size(); i++) {
@@ -97,7 +105,6 @@ public class QueueStrip extends HBox {
         thumb.setFitWidth(THUMB);
         thumb.setFitHeight(THUMB);
         thumb.setPreserveRatio(true);
-        thumb.imageProperty().bind(item.fxImageProperty());
 
         ProgressIndicator busy = new ProgressIndicator();
         busy.setPrefSize(26, 26);
@@ -134,6 +141,7 @@ public class QueueStrip extends HBox {
         tile.setOnMouseExited(e -> remove.setVisible(false));
 
         Runnable update = () -> {
+            thumb.setImage(item.getFxImage());
             ItemStatus s = item.getStatus();
             boolean working = s == ItemStatus.PROCESSING || s == ItemStatus.EXPORTING;
             busy.setVisible(working);
@@ -152,7 +160,8 @@ public class QueueStrip extends HBox {
             }
             status.setText(s.getLabel());
         };
-        item.statusProperty().addListener((o, oldValue, newValue) -> update.run());
+        item.addChangeListener(update);
+        tileUpdaters.put(item, update);
         update.run();
         return tile;
     }

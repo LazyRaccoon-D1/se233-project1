@@ -1,7 +1,5 @@
 package se233.project1.controller;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import se233.project1.exception.PotraceNotFoundException;
 import se233.project1.exception.VectorizationException;
 import se233.project1.model.DetailLevel;
@@ -18,7 +16,6 @@ import java.util.Scanner;
  * in an external process and returns the SVG path data.
  */
 public class PotraceRunner {
-    private static final Logger logger = LogManager.getLogger(PotraceRunner.class);
     private static File executable;
 
     /** The path data of one traced bitmap plus Potrace's coordinate transform. */
@@ -71,7 +68,7 @@ public class PotraceRunner {
         for (File candidate : candidates) {
             if (candidate.isFile() && candidate.canExecute()) {
                 executable = candidate;
-                logger.info("Using potrace at {}", candidate);
+                System.out.println("Using potrace at " + candidate);
                 return candidate;
             }
         }
